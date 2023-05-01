@@ -263,6 +263,7 @@ static bool setup_stack(void** esp);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
+static void split_by_space(const char* str, char*** result, int* count);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -282,8 +283,13 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
   process_activate();
 
+  // break file_name into args
+  char** args;
+  int argc;
+  split_by_space(file_name, &args, &argc);
+
   /* Open executable file. */
-  file = filesys_open(file_name);
+  file = filesys_open(args[0]);
   if (file == NULL) {
     printf("load: %s: open failed\n", file_name);
     goto done;
@@ -351,6 +357,40 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   if (!setup_stack(esp))
     goto done;
 
+  // set up args
+  char** argv = (char**)malloc(argc * sizeof(char*));
+  for (int i = argc - 1; i >= 0; i--) {
+    *esp -= strlen(args[i]) + 1;
+    memcpy(*esp, args[i], strlen(args[i]) + 1);
+    argv[i] = *esp;
+  }
+
+  // set up stack align
+  // *esp -= 4;
+  // memset(*esp, 0, 4 * sizeof(uint8_t));
+
+  // set up argv sentinel
+  *esp -= sizeof(char*);
+  memset(*esp, 0, sizeof(char*));
+
+  // set up argv
+  for (int i = argc - 1; i >= 0; i--) {
+    *esp -= sizeof(char*);
+    memcpy(*esp, &argv[i], sizeof(char*));
+  }
+  char* arg0_ptr = *esp;
+  free(argv);
+  *esp -= sizeof(char**);
+  memcpy(*esp, &arg0_ptr, sizeof(char**));
+
+  // set up argc
+  *esp -= sizeof(int);
+  memcpy(*esp, &argc, sizeof(int));
+
+  // set up fake return address;
+  *esp -= sizeof(void*);
+  memset(*esp, 0, sizeof(void*));
+
   /* Start address. */
   *eip = (void (*)(void))ehdr.e_entry;
 
@@ -363,6 +403,31 @@ done:
 }
 
 /* load() helpers. */
+
+static void split_by_space(const char* str, char*** result, int* count) {
+  int i = 0;
+  int n_spaces = 0;
+  char* temp_str = str;
+  char* saveptr;
+
+  while (*temp_str) {
+    if (*temp_str == ' ' && *(temp_str + 1) != ' ') {
+      n_spaces++;
+    }
+    temp_str++;
+  }
+
+  *count = n_spaces + 1;
+  *result = (char**)malloc(*count * sizeof(char*));
+  char* str_copy = (char*)malloc(strlen(str) + 1);
+  strlcpy(str_copy, str, strlen(str) + 1);
+
+  temp_str = strtok_r(str_copy, " ", &saveptr);
+  while (temp_str != NULL) {
+    (*result)[i++] = temp_str;
+    temp_str = strtok_r(NULL, " ", &saveptr);
+  }
+}
 
 static bool install_page(void* upage, void* kpage, bool writable);
 
