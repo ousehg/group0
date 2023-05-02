@@ -4,6 +4,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
+#include "filesys/inode.h"
+#include <string.h>
 
 static void syscall_handler(struct intr_frame*);
 
@@ -22,8 +24,21 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   /* printf("System call number: %d\n", args[0]); */
 
   if (args[0] == SYS_EXIT) {
+    // 1
     f->eax = args[1];
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
+  } else if (args[0] == SYS_WRITE) {
+    // 9
+    uint32_t fd = args[1];
+    void* buffer = (void*)args[2];
+    off_t size = args[3];
+    struct inode* inode = inode_open(fd);
+    off_t wr = inode_write_at(inode, buffer, size, 0);
+    f->eax = wr;
+    printf("%s", (char*)buffer);
+  } else if (args[0] == SYS_PRACTICE) {
+    // 13
+    f->eax = args[1] + 1;
   }
 }

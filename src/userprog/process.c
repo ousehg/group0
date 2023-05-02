@@ -287,6 +287,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   char** args;
   int argc;
   split_by_space(file_name, &args, &argc);
+  strlcpy(t->pcb->process_name, args[0], strlen(args[0]) + 1);
 
   /* Open executable file. */
   file = filesys_open(args[0]);
@@ -358,16 +359,22 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
     goto done;
 
   // set up args
-  char** argv = (char**)malloc(argc * sizeof(char*));
+  char** argv_ptr = (char**)malloc(argc * sizeof(char*));
+  size_t bytes_counter = 0;
   for (int i = argc - 1; i >= 0; i--) {
     *esp -= strlen(args[i]) + 1;
     memcpy(*esp, args[i], strlen(args[i]) + 1);
-    argv[i] = *esp;
+    argv_ptr[i] = *esp;
+    // counting args bytes
+    bytes_counter += strlen(args[i]) + 1;
   }
 
-  // set up stack align
-  // *esp -= 4;
-  // memset(*esp, 0, 4 * sizeof(uint8_t));
+  // set up stack align, argc shoud be aligned to 16-byte boundary.
+  // bytes_counter equals to sum sentinel + argv[i] + argv + argc
+  bytes_counter += (1 + argc + 1 + 1) * sizeof(uintptr_t);
+  size_t padding = (16 - bytes_counter % 16) % 16;
+  *esp -= padding;
+  memset(*esp, 0, padding * sizeof(uint8_t));
 
   // set up argv sentinel
   *esp -= sizeof(char*);
@@ -376,12 +383,12 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   // set up argv
   for (int i = argc - 1; i >= 0; i--) {
     *esp -= sizeof(char*);
-    memcpy(*esp, &argv[i], sizeof(char*));
+    memcpy(*esp, &argv_ptr[i], sizeof(char*));
   }
   char* arg0_ptr = *esp;
-  free(argv);
-  *esp -= sizeof(char**);
-  memcpy(*esp, &arg0_ptr, sizeof(char**));
+  free(argv_ptr);
+  *esp -= sizeof(char*);
+  memcpy(*esp, &arg0_ptr, sizeof(char*));
 
   // set up argc
   *esp -= sizeof(int);
@@ -407,7 +414,7 @@ done:
 static void split_by_space(const char* str, char*** result, int* count) {
   int i = 0;
   int n_spaces = 0;
-  char* temp_str = str;
+  char* temp_str = (char*)str;
   char* saveptr;
 
   while (*temp_str) {
