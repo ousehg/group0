@@ -3,6 +3,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "filesys/inode.h"
 #include <string.h>
@@ -30,11 +31,17 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     process_exit();
   } else if (args[0] == SYS_WRITE) {
     // 9
-    uint32_t fd = args[1];
+    struct inode* inode = inode_open(args[1]);
+    if (inode == NULL) {
+      f->eax = -1;
+      return;
+    }
     void* buffer = (void*)args[2];
-    off_t size = args[3];
-    struct inode* inode = inode_open(fd);
-    off_t wr = inode_write_at(inode, buffer, size, 0);
+    if (buffer == NULL || !is_user_vaddr(buffer)) {
+      f->eax = -1;
+      return;
+    }
+    off_t wr = inode_write_at(inode, buffer, args[3], 0);
     f->eax = wr;
     printf("%s", (char*)buffer);
   } else if (args[0] == SYS_PRACTICE) {
