@@ -6,6 +6,7 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "filesys/inode.h"
+#include "lib/kernel/stdio.h"
 #include <string.h>
 
 static void syscall_handler(struct intr_frame*);
@@ -31,19 +32,28 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     process_exit();
   } else if (args[0] == SYS_WRITE) {
     // 9
-    struct inode* inode = inode_open(args[1]);
-    if (inode == NULL) {
-      f->eax = -1;
-      return;
-    }
+    uint32_t fd = args[1];
     void* buffer = (void*)args[2];
     if (buffer == NULL || !is_user_vaddr(buffer)) {
       f->eax = -1;
       return;
     }
-    off_t wr = inode_write_at(inode, buffer, args[3], 0);
-    f->eax = wr;
-    printf("%s", (char*)buffer);
+    size_t size = args[3];
+    struct inode* inode;
+    switch (fd) {
+      case 1:
+        putbuf((char*)buffer, size);
+        break;
+
+      default:
+        inode = inode_open(fd);
+        if (inode == NULL) {
+          f->eax = -1;
+          return;
+        }
+        off_t wr = inode_write_at(inode, buffer, size, 0);
+        f->eax = wr;
+    }
   } else if (args[0] == SYS_PRACTICE) {
     // 13
     f->eax = args[1] + 1;
