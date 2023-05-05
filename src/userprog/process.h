@@ -3,6 +3,7 @@
 
 #include "threads/thread.h"
 #include <stdint.h>
+#include <filesys/file.h>
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
@@ -27,6 +28,13 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
+  struct list* fd_table;      /* File Descriptor table. */
+};
+
+struct fd_entry {
+  struct list_elem elem; /* Element in fd list. */
+  uint32_t fd;           /* File descriptor*/
+  struct file* file;     /* File*/
 };
 
 void userprog_init(void);

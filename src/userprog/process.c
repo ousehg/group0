@@ -81,6 +81,10 @@ static void start_process(void* file_name_) {
   struct process* new_pcb = malloc(sizeof(struct process));
   success = pcb_success = new_pcb != NULL;
 
+  struct list* fd_table = malloc(sizeof(struct list));
+  list_init(fd_table);
+  new_pcb->fd_table = fd_table;
+
   /* Initialize process control block */
   if (success) {
     // Ensure that timer_interrupt() -> schedule() -> process_activate()
