@@ -11,6 +11,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "lib/kernel/stdio.h"
+#include "devices/shutdown.h"
 #include <string.h>
 
 static void syscall_handler(struct intr_frame*);
@@ -29,11 +30,23 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   /* printf("System call number: %d\n", args[0]); */
 
-  if (args[0] == SYS_EXIT) {
+  if (args[0] == SYS_HALT) {
+    // 0
+    shutdown_power_off();
+  } else if (args[0] == SYS_EXIT) {
     // 1
     f->eax = args[1];
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
+  } else if (args[0] == SYS_EXEC) {
+    // 2
+    char* name;
+    pid_t new_pid_t;
+
+    name = (char*)args[1];
+    new_pid_t = process_execute(name);
+    process_wait(new_pid_t);
+    f->eax = new_pid_t;
   } else if (args[0] == SYS_CREATE) {
     // 4
     char* name = (char*)args[1];
