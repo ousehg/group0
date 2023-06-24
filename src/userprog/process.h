@@ -28,13 +28,15 @@ struct process {
   uint32_t* pagedir;          /* Page directory. */
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
-  struct list* fd_table;      /* File Descriptor table. */
+  struct list* fd_table;      /* 文件描述符链表 */
+  struct process* parent;     /* 父进程 */
+  bool is_waited;             /* 是否已经调用过 wait */
 };
 
 struct fd_entry {
-  struct list_elem elem; /* Element in fd list. */
-  uint32_t fd;           /* File descriptor*/
-  struct file* file;     /* File*/
+  struct list_elem elem; /* 文件描述符链表元素 */
+  uint32_t fd;           /* 文件描述符 */
+  struct file* file;     /* 文件 */
 };
 
 void userprog_init(void);

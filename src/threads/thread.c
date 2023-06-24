@@ -293,6 +293,7 @@ void thread_exit(void) {
      when it calls thread_switch_tail(). */
   intr_disable();
   list_remove(&thread_current()->allelem);
+  sema_up(&thread_current()->exited); /* 同步信号量 */
   thread_current()->status = THREAD_DYING;
   schedule();
   NOT_REACHED();
@@ -430,6 +431,10 @@ static void init_thread(struct thread* t, const char* name, int priority) {
   t->priority = priority;
   t->pcb = NULL;
   t->magic = THREAD_MAGIC;
+
+  /* 初始化信号量*/
+  sema_init(&t->loaded, 0);
+  sema_init(&t->exited, 0);
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);

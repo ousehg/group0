@@ -105,6 +105,7 @@ static void start_process(void* file_name_) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
   }
+  //todo sema up thread load
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -133,6 +134,23 @@ static void start_process(void* file_name_) {
   NOT_REACHED();
 }
 
+struct process_wait_thread_foreach_aux {
+  pid_t child_pid;
+  struct thread* tcb;
+};
+
+void process_wait_thread_foreach_func(struct thread* t, void* aux) {
+  struct process_wait_thread_foreach_aux* foreach_aux;
+
+  foreach_aux = (struct process_wait_thread_foreach_aux*)aux;
+
+  if (foreach_aux->child_pid == t->tid) {
+    foreach_aux->tcb = t;
+  }
+
+  return;
+}
+
 /* Waits for process with PID child_pid to die and returns its exit status.
    If it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If child_pid is invalid or if it was not a
@@ -143,7 +161,42 @@ static void start_process(void* file_name_) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
+  struct process* parent;    /* 父进程 */
+  struct process* child;     /* 子进程 */
+  enum intr_level old_level; /* 中断状态 */
+  struct process_wait_thread_foreach_aux* aux;
+
+  parent = thread_current()->pcb;
+
+  /* 检查子进程是否存在 */
+  old_level = intr_disable();
+  aux = malloc(sizeof(struct process_wait_thread_foreach_aux));
+  aux->child_pid = child_pid;
+  aux->tcb = NULL;
+  thread_foreach(process_wait_thread_foreach_func, aux);
+  intr_set_level(old_level);
+  if (aux->tcb == NULL) {
+    return -1;
+  }
+  child = aux->tcb->pcb;
+
+  // /* 检查父进程 */
+  // if (child->parent->main_thread->tid != parent->main_thread->tid) {
+  //   return -1;
+  // }
+
+  // /* 检查是否已经被内核 kill */
+
+  // /* 检查是否已经调用 wait */
+  // if (child->is_waited) {
+  //   return -1;
+  // }
+
+  // /* 处理 wait */
+  // child->is_waited = true;
+
+  sema_down(&aux->tcb->exited);
+  // sema_down(&temporary);
   return 0;
 }
 

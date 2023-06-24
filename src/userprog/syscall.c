@@ -45,8 +45,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
     name = (char*)args[1];
     new_pid_t = process_execute(name);
-    process_wait(new_pid_t);
+    // process_wait(new_pid_t);
     f->eax = new_pid_t;
+  } else if (args[0] == SYS_WAIT) {
+    // 3
+    pid_t pid_t;
+
+    pid_t = args[1];
+    f->eax = process_wait(pid_t);
   } else if (args[0] == SYS_CREATE) {
     // 4
     char* name = (char*)args[1];
