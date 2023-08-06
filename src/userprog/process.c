@@ -26,6 +26,16 @@ static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
+struct psemaphore {
+  struct list_elem elem;
+  pid_t pid;
+  pid_t parent_pid;
+  struct semaphore sema;
+};
+
+struct list psemaphores;
+struct psemaphore* get_psema_by_pid(pid_t pid, bool parent);
+
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
    the first user process. Any additions to the PCB should be also
@@ -44,6 +54,8 @@ void userprog_init(void) {
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);
+
+  list_init(&psemaphores);
 }
 
 /* Starts a new thread running a user program loaded from
@@ -66,6 +78,16 @@ pid_t process_execute(const char* file_name) {
   tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
+
+  /* 初始化进程信号量 */
+  struct psemaphore* psema = malloc(sizeof(struct psemaphore));
+  psema->parent_pid = thread_tid();
+  psema->pid = tid;
+  sema_init(&psema->sema, 0);
+  list_push_back(&psemaphores, &psema->elem);
+  sema_down(&psema->sema);
+  if (sema_try_down(&psema->sema))
+    return TID_ERROR;
   return tid;
 }
 
@@ -76,6 +98,7 @@ static void start_process(void* file_name_) {
   struct thread* t = thread_current();
   struct intr_frame if_;
   bool success, pcb_success;
+  struct psemaphore* psema;
 
   /* Allocate process control block */
   struct process* new_pcb = malloc(sizeof(struct process));
@@ -97,6 +120,8 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
+  psema = get_psema_by_pid(t->tid, false);
+
   /* Initialize interrupt frame and load executable. */
   if (success) {
     memset(&if_, 0, sizeof if_);
@@ -105,7 +130,6 @@ static void start_process(void* file_name_) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(file_name, &if_.eip, &if_.esp);
   }
-  //todo sema up thread load
 
   /* Handle failure with succesful PCB malloc. Must free the PCB */
   if (!success && pcb_success) {
@@ -119,8 +143,10 @@ static void start_process(void* file_name_) {
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
+  sema_up(&psema->sema); /* 同步进程信号量 - 加载完成 */
   if (!success) {
-    sema_up(&temporary);
+    // sema_up(&temporary);
+    sema_up(&psema->sema); /* 同步进程信号量 - 加载失败 */
     thread_exit();
   }
 
@@ -134,21 +160,23 @@ static void start_process(void* file_name_) {
   NOT_REACHED();
 }
 
-struct process_wait_thread_foreach_aux {
-  pid_t child_pid;
-  struct thread* tcb;
-};
+/* 读取进程信号量 */
+struct psemaphore* get_psema_by_pid(pid_t pid, bool parent) {
+  struct list_elem* e;
+  struct psemaphore* psema;
 
-void process_wait_thread_foreach_func(struct thread* t, void* aux) {
-  struct process_wait_thread_foreach_aux* foreach_aux;
-
-  foreach_aux = (struct process_wait_thread_foreach_aux*)aux;
-
-  if (foreach_aux->child_pid == t->tid) {
-    foreach_aux->tcb = t;
+  for (e = list_begin(&psemaphores); e != list_end(&psemaphores); e = list_next(e)) {
+    struct psemaphore* p = list_entry(e, struct psemaphore, elem);
+    if (parent && p->parent_pid == pid) {
+      psema = p;
+      break;
+    }
+    if (!parent && p->pid == pid) {
+      psema = p;
+      break;
+    }
   }
-
-  return;
+  return psema;
 }
 
 /* Waits for process with PID child_pid to die and returns its exit status.
@@ -161,42 +189,12 @@ void process_wait_thread_foreach_func(struct thread* t, void* aux) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid UNUSED) {
-  struct process* parent;    /* 父进程 */
-  struct process* child;     /* 子进程 */
-  enum intr_level old_level; /* 中断状态 */
-  struct process_wait_thread_foreach_aux* aux;
-
-  parent = thread_current()->pcb;
-
-  /* 检查子进程是否存在 */
-  old_level = intr_disable();
-  aux = malloc(sizeof(struct process_wait_thread_foreach_aux));
-  aux->child_pid = child_pid;
-  aux->tcb = NULL;
-  thread_foreach(process_wait_thread_foreach_func, aux);
-  intr_set_level(old_level);
-  if (aux->tcb == NULL) {
+  if (child_pid == TID_ERROR)
     return -1;
-  }
-  child = aux->tcb->pcb;
 
-  // /* 检查父进程 */
-  // if (child->parent->main_thread->tid != parent->main_thread->tid) {
-  //   return -1;
-  // }
-
-  // /* 检查是否已经被内核 kill */
-
-  // /* 检查是否已经调用 wait */
-  // if (child->is_waited) {
-  //   return -1;
-  // }
-
-  // /* 处理 wait */
-  // child->is_waited = true;
-
-  sema_down(&aux->tcb->exited);
-  // sema_down(&temporary);
+  /* 同步进程信号量 - 等待子进程 */
+  struct psemaphore* psema = get_psema_by_pid(child_pid, false);
+  sema_down(&psema->sema);
   return 0;
 }
 
@@ -204,6 +202,7 @@ int process_wait(pid_t child_pid UNUSED) {
 void process_exit(void) {
   struct thread* cur = thread_current();
   uint32_t* pd;
+  struct psemaphore* psema;
 
   /* If this thread does not have a PCB, don't worry */
   if (cur->pcb == NULL) {
@@ -235,7 +234,10 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  sema_up(&temporary);
+  /* 同步进程信号量 - 退出 */
+  psema = get_psema_by_pid(cur->tid, false);
+  sema_up(&psema->sema);
+  // sema_up(&temporary);
   thread_exit();
 }
 

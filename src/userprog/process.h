@@ -29,8 +29,6 @@ struct process {
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
   struct list* fd_table;      /* 文件描述符链表 */
-  struct process* parent;     /* 父进程 */
-  bool is_waited;             /* 是否已经调用过 wait */
 };
 
 struct fd_entry {

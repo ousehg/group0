@@ -18,6 +18,16 @@ static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
 
+/* Reads a byte at user virtual address UADDR.
+   UADDR must be below PHYS_BASE.
+   Returns the byte value if successful,
+   -1 if a segfault occurred. */
+static int get_user(const uint32_t* uaddr) {
+  int result;
+  asm("movl $1f, %0; movzbl %1, %0; 1:" : "=&a"(result) : "m"(*uaddr));
+  return result;
+}
+
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
 
@@ -42,6 +52,35 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     // 2
     char* name;
     pid_t new_pid_t;
+
+    if (pagedir_get_page(thread_current()->pcb->pagedir, args + 1) == NULL) {
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+      process_exit();
+      return;
+    }
+    if (pagedir_get_page(thread_current()->pcb->pagedir, args + 2) == NULL) {
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+      process_exit();
+      return;
+    }
+
+    void* last;
+    for (last = (void*)args[1]; last < PHYS_BASE; last++) {
+      if (pagedir_get_page(thread_current()->pcb->pagedir, last) == NULL) {
+        printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+        process_exit();
+        return;
+      }
+      if (get_user((uint32_t*)last) != '\0') {
+        continue;
+      }
+      break;
+    }
+    if (last == PHYS_BASE) {
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+      process_exit();
+      return;
+    }
 
     name = (char*)args[1];
     new_pid_t = process_execute(name);

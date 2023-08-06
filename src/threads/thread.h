@@ -93,10 +93,6 @@ struct thread {
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
-  /* 用于 syscall 同步 */
-  struct semaphore loaded;
-  struct semaphore exited;
-
 #ifdef USERPROG
   /* Owned by process.c. */
   struct process* pcb; /* Process control block if this thread is a userprog */
