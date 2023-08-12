@@ -31,10 +31,13 @@ struct psemaphore {
   pid_t pid;
   pid_t parent_pid;
   struct semaphore sema;
+  struct semaphore load;
+  uint32_t exit_code;
+  bool wait;
 };
 
 struct list psemaphores;
-struct psemaphore* get_psema_by_pid(pid_t pid, bool parent);
+struct psemaphore* get_psema_by_pid(pid_t pid);
 
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
@@ -84,9 +87,10 @@ pid_t process_execute(const char* file_name) {
   psema->parent_pid = thread_tid();
   psema->pid = tid;
   sema_init(&psema->sema, 0);
+  sema_init(&psema->load, 0);
   list_push_back(&psemaphores, &psema->elem);
   sema_down(&psema->sema);
-  if (sema_try_down(&psema->sema))
+  if (sema_try_down(&psema->load))
     return TID_ERROR;
   return tid;
 }
@@ -120,7 +124,7 @@ static void start_process(void* file_name_) {
     strlcpy(t->pcb->process_name, t->name, sizeof t->name);
   }
 
-  psema = get_psema_by_pid(t->tid, false);
+  psema = get_psema_by_pid(t->tid);
 
   /* Initialize interrupt frame and load executable. */
   if (success) {
@@ -143,12 +147,13 @@ static void start_process(void* file_name_) {
 
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
-  sema_up(&psema->sema); /* 同步进程信号量 - 加载完成 */
   if (!success) {
     // sema_up(&temporary);
-    sema_up(&psema->sema); /* 同步进程信号量 - 加载失败 */
+    sema_up(&psema->load); /* 同步进程信号量 - 加载失败 */
+    sema_up(&psema->sema); /* 同步进程信号量 - 加载完成 */
     thread_exit();
   }
+  sema_up(&psema->sema); /* 同步进程信号量 - 加载完成 */
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -161,17 +166,13 @@ static void start_process(void* file_name_) {
 }
 
 /* 读取进程信号量 */
-struct psemaphore* get_psema_by_pid(pid_t pid, bool parent) {
+struct psemaphore* get_psema_by_pid(pid_t pid) {
   struct list_elem* e;
   struct psemaphore* psema;
 
   for (e = list_begin(&psemaphores); e != list_end(&psemaphores); e = list_next(e)) {
     struct psemaphore* p = list_entry(e, struct psemaphore, elem);
-    if (parent && p->parent_pid == pid) {
-      psema = p;
-      break;
-    }
-    if (!parent && p->pid == pid) {
+    if (p->pid == pid) {
       psema = p;
       break;
     }
@@ -188,14 +189,18 @@ struct psemaphore* get_psema_by_pid(pid_t pid, bool parent) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
+int process_wait(pid_t child_pid) {
   if (child_pid == TID_ERROR)
     return -1;
 
+  struct thread* cur = thread_current();
   /* 同步进程信号量 - 等待子进程 */
-  struct psemaphore* psema = get_psema_by_pid(child_pid, false);
+  struct psemaphore* psema = get_psema_by_pid(child_pid);
+  if (psema == NULL || psema->wait || psema->parent_pid != cur->tid)
+    return -1;
+  psema->wait = 1;
   sema_down(&psema->sema);
-  return 0;
+  return psema->exit_code;
 }
 
 /* Free the current process's resources. */
@@ -209,6 +214,11 @@ void process_exit(void) {
     thread_exit();
     NOT_REACHED();
   }
+
+  /* 同步进程信号量 - 退出 */
+  psema = get_psema_by_pid(cur->tid);
+  psema->exit_code = cur->pcb->exit_code;
+  sema_up(&psema->sema);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -234,9 +244,6 @@ void process_exit(void) {
   cur->pcb = NULL;
   free(pcb_to_free);
 
-  /* 同步进程信号量 - 退出 */
-  psema = get_psema_by_pid(cur->tid, false);
-  sema_up(&psema->sema);
   // sema_up(&temporary);
   thread_exit();
 }

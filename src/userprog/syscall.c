@@ -40,12 +40,24 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
   /* printf("System call number: %d\n", args[0]); */
 
+  /* 这里后续可以优化下，所有校验不通过的都走 SYS_EXIT 逻辑*/
+  if (pagedir_get_page(thread_current()->pcb->pagedir, args) == NULL) {
+    f->eax = -1;
+    struct thread* cur = thread_current();
+    cur->pcb->exit_code = -1;
+    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, -1);
+    process_exit();
+    return;
+  }
+
   if (args[0] == SYS_HALT) {
     // 0
     shutdown_power_off();
   } else if (args[0] == SYS_EXIT) {
     // 1
     f->eax = args[1];
+    struct thread* cur = thread_current();
+    cur->pcb->exit_code = args[1];
     printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
     process_exit();
   } else if (args[0] == SYS_EXEC) {

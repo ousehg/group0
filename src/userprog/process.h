@@ -29,6 +29,7 @@ struct process {
   char process_name[16];      /* Name of the main thread */
   struct thread* main_thread; /* Pointer to main thread */
   struct list* fd_table;      /* 文件描述符链表 */
+  uint32_t exit_code;         /* 退出码 */
 };
 
 struct fd_entry {
