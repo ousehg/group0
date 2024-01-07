@@ -28,6 +28,10 @@ switch_threads:
 	pushl %esi
 	pushl %edi
 
+	# huz: Get offset (struct thread, fpu_state)
+.globl thread_fpu_state_ofs
+	mov thread_fpu_state_ofs, %ebx
+
 	# Get offsetof (struct thread, stack).
 .globl thread_stack_ofs
 	mov thread_stack_ofs, %edx
@@ -36,9 +40,15 @@ switch_threads:
 	movl SWITCH_CUR(%esp), %eax
 	movl %esp, (%eax,%edx,1)
 
+	# huz: Save current FPU state
+	fsave (%eax,%ebx,1)
+
 	# Restore stack pointer from new thread's stack.
 	movl SWITCH_NEXT(%esp), %ecx
 	movl (%ecx,%edx,1), %esp
+
+	# huz: Restore new FPU stat
+	frstor (%ecx,%ebx,1)
 
 	# Restore caller's register state.
 	popl %edi

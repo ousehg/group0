@@ -100,6 +100,9 @@ struct thread {
 
   /* Owned by thread.c. */
   unsigned magic; /* Detects stack overflow. */
+  
+  /* huz: Saved FPU state pointer. */
+  uint8_t* fpu_state;
 };
 
 /* Types of scheduler that the user can request the kernel

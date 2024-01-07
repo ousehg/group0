@@ -148,7 +148,7 @@ static void start_process(void* file_name_) {
   /* Clean up. Exit on failure or jump to userspace */
   palloc_free_page(file_name);
   if (!success) {
-    // sema_up(&temporary);
+    // huz: sema_up(&temporary);
     sema_up(&psema->load); /* 同步进程信号量 - 加载失败 */
     sema_up(&psema->sema); /* 同步进程信号量 - 加载完成 */
     thread_exit();
