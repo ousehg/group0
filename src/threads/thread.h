@@ -103,6 +103,7 @@ struct thread {
   
   /* huz: Saved FPU state pointer. */
   uint8_t* fpu_state;
+  int fpu_init;
 };
 
 /* Types of scheduler that the user can request the kernel

@@ -436,6 +436,7 @@ static void init_thread(struct thread* t, const char* name, int priority) {
 
   /* huz: Initialize the FPU state pointer. */
   t->fpu_state = NULL;
+  t->fpu_init = 0;
 
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
@@ -522,6 +523,12 @@ void thread_switch_tail(struct thread* prev) {
   /* Activate the new address space. */
   process_activate();
 #endif
+
+  /* huz: Init FPU state at once. */
+  if (!cur->fpu_init) {
+    asm volatile("finit");
+    cur->fpu_init = 1;
+  }
 
   /* If the thread we switched from is dying, destroy its struct
      thread.  This must happen late so that thread_exit() doesn't
