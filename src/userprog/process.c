@@ -86,6 +86,7 @@ pid_t process_execute(const char* file_name) {
   struct psemaphore* psema = malloc(sizeof(struct psemaphore));
   psema->parent_pid = thread_tid();
   psema->pid = tid;
+  psema->wait = 0;
   sema_init(&psema->sema, 0);
   sema_init(&psema->load, 0);
   list_push_back(&psemaphores, &psema->elem);
@@ -215,6 +216,17 @@ void process_exit(void) {
     NOT_REACHED();
   }
 
+  /* huz: Close all files */
+  struct list_elem* e;
+  struct fd_entry* fd_entry;
+  struct list* fd_table = cur->pcb->fd_table;
+  while (!list_empty(fd_table)) {
+    e = list_pop_front(fd_table);
+    fd_entry = list_entry(e, struct fd_entry, elem);
+    file_close(fd_entry->file);
+    free(fd_entry);
+  }
+
   /* 同步进程信号量 - 退出 */
   psema = get_psema_by_pid(cur->tid);
   psema->exit_code = cur->pcb->exit_code;
@@ -329,7 +341,7 @@ static bool setup_stack(void** esp);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
-static void split_by_space(const char* str, char*** result, int* count);
+static void split(const char* str, const char* delimiter, char*** split_out, int* count_out);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -352,7 +364,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   // break file_name into args
   char** args;
   int argc;
-  split_by_space(file_name, &args, &argc);
+  split(file_name, " ", &args, &argc);
   strlcpy(t->pcb->process_name, args[0], strlen(args[0]) + 1);
 
   /* Open executable file. */
@@ -475,31 +487,32 @@ done:
   return success;
 }
 
-/* load() helpers. */
-
-static void split_by_space(const char* str, char*** result, int* count) {
-  int i = 0;
-  int n_spaces = 0;
-  char* temp_str = (char*)str;
-  char* saveptr;
-
-  while (*temp_str) {
-    if (*temp_str == ' ' && *(temp_str + 1) != ' ') {
-      n_spaces++;
-    }
-    temp_str++;
-  }
-
-  *count = n_spaces + 1;
-  *result = (char**)malloc(*count * sizeof(char*));
-  char* str_copy = (char*)malloc(strlen(str) + 1);
+/* huz: load() helpers. */
+static void split(const char* str, const char* delimiter, char*** split_out, int* count_out) {
+  char str_copy[strlen(str) + 1];
+  char str_copy2[strlen(str) + 1];
   strlcpy(str_copy, str, strlen(str) + 1);
+  strlcpy(str_copy2, str, strlen(str) + 1);
 
-  temp_str = strtok_r(str_copy, " ", &saveptr);
-  while (temp_str != NULL) {
-    (*result)[i++] = temp_str;
-    temp_str = strtok_r(NULL, " ", &saveptr);
+  char* token;
+  char* save_ptr;
+  int count = 0;
+  for (token = strtok_r(str_copy, delimiter, &save_ptr); token != NULL;
+       token = strtok_r(NULL, delimiter, &save_ptr)) {
+    count++;
   }
+
+  char** split = malloc(count * sizeof(char*));
+  int i = 0;
+  for (token = strtok_r(str_copy2, delimiter, &save_ptr); token != NULL;
+       token = strtok_r(NULL, delimiter, &save_ptr)) {
+    split[i] = malloc(strlen(token) + 1);
+    strlcpy(split[i], token, strlen(token) + 1);
+    i++;
+  }
+
+  *split_out = split;
+  *count_out = count;
 }
 
 static bool install_page(void* upage, void* kpage, bool writable);

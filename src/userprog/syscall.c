@@ -132,6 +132,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     struct fd_entry* fd_entry;
 
     name = (char*)args[1];
+    if (!is_user_vaddr(name)) {
+      thread_current()->pcb->exit_code = -1;
+      process_exit();
+    }
     if (pagedir_get_page(thread_current()->pcb->pagedir, name) == NULL) {
       printf("%s: exit(-1)\n", thread_current()->pcb->process_name);
       process_exit();
@@ -314,6 +318,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
           if (fd_entry->fd == fd) {
             file_close(fd_entry->file);
             list_remove(e);
+            free(fd_entry);
             return;
           }
         }
