@@ -11,6 +11,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "lib/kernel/stdio.h"
+#include "lib/float.h"
 #include "devices/shutdown.h"
 #include <string.h>
 
@@ -131,6 +132,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
     struct fd_entry* fd_entry;
 
     name = (char*)args[1];
+    if (!is_user_vaddr(name)) {
+      thread_current()->pcb->exit_code = -1;
+      process_exit();
+    }
     if (pagedir_get_page(thread_current()->pcb->pagedir, name) == NULL) {
       printf("%s: exit(-1)\n", thread_current()->pcb->process_name);
       process_exit();
@@ -313,6 +318,7 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
           if (fd_entry->fd == fd) {
             file_close(fd_entry->file);
             list_remove(e);
+            free(fd_entry);
             return;
           }
         }
@@ -321,5 +327,16 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
   } else if (args[0] == SYS_PRACTICE) {
     // 13
     f->eax = args[1] + 1;
+  } else if (args[0] == SYS_COMPUTE_E) { // 14
+    /* huz: Save user's FPU state. */
+    uint8_t fpu_state[108];
+    asm volatile("fsave (%0)" : : "g"(&fpu_state));
+    int n = args[1];
+    f->eax = sys_sum_to_e(n);
+    /* huz: Restore user's FPU state. */
+    asm volatile("frstor (%0)" : : "g"(&fpu_state));
+  } else {
+    printf("Unknown system call number: %d\n", args[0]);
+    thread_exit();
   }
 }
